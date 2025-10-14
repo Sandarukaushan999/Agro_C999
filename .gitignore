@@ -1,0 +1,34 @@
+# Node modules
+node_modules/
+
+# Backend node_modules (if backend is a separate project)
+/backend/node_modules/
+
+# Logs
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+ 
+# Python venv and caches
+ml_service/venv/
+venv/
+__pycache__/
+*.pyc
+
+# Machine learning artifacts / large models
+ml_training/models/
+*.pth
+
+# Ignore local env specific files
+.env.local
+.env.*.local

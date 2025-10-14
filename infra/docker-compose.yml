@@ -1,0 +1,151 @@
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    networks:
+      - agro_network
+
+  # MinIO for S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    networks:
+      - agro_network
+
+  # MLflow for experiment tracking
+  mlflow:
+    image: python:3.10-slim
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    environment:
+      MLFLOW_BACKEND_STORE_URI: sqlite:///mlflow.db
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+    command: >
+      bash -c "
+        pip install mlflow psycopg2-binary &&
+        mlflow server 
+        --backend-store-uri sqlite:///mlflow.db 
+        --default-artifact-root /mlflow/artifacts 
+        --host 0.0.0.0 
+        --port 5000
+      "
+    networks:
+      - agro_network
+
+  # ML Service (FastAPI)
+  ml_service:
+    build:
+      context: ../ml_service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../ml_service:/app
+      - ../ml_training/models:/app/models
+      - ../dataset:/app/dataset:ro
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MODEL_PATH=/app/models/model_best.pth
+      - DATASET_PATH=/app/dataset
+    depends_on:
+      - mlflow
+    networks:
+      - agro_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API (Express.js)
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../backend:/usr/src/app
+      - ../uploads:/usr/src/app/uploads
+    environment:
+      - NODE_ENV=development
+      - MONGO_URI=mongodb://mongo:27017/agro_c
+      - JWT_SECRET=your_super_secret_jwt_key_change_in_production
+      - ML_SERVICE_URL=http://ml_service:8000
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET_NAME=agro-images
+    depends_on:
+      - mongo
+      - ml_service
+      - minio
+    networks:
+      - agro_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+      - REACT_APP_ML_SERVICE_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - agro_network
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - agro_network
+
+volumes:
+  mongo_data:
+  minio_data:
+  mlflow_data:
+  redis_data:
+
+networks:
+  agro_network:
+    driver: bridge

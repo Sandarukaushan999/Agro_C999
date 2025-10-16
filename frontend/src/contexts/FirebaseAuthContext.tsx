@@ -90,6 +90,33 @@ export const FirebaseAuthProvider: React.FC<AuthProviderProps> = ({ children }) 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Local storage limits and helpers
+  const MAX_LOCAL_PREDICTIONS = 50; // keep last 50 per user
+  const getUserPredictionsKey = (uid: string) => `predictions_${uid}`;
+  const safeSetUserPredictions = (uid: string, predictions: PredictionHistory[]) => {
+    const key = getUserPredictionsKey(uid);
+    try {
+      localStorage.setItem(key, JSON.stringify(predictions));
+      return true;
+    } catch (err: any) {
+      if (err && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+        // Remove oldest entries until it fits or nothing is left
+        const working = [...predictions];
+        while (working.length > 0) {
+          working.shift();
+          try {
+            localStorage.setItem(key, JSON.stringify(working));
+            return true;
+          } catch (e) {
+            // keep trimming
+          }
+        }
+        return false;
+      }
+      return false;
+    }
+  };
+
   // Google Auth Provider
   const googleProvider = new GoogleAuthProvider();
 
@@ -272,13 +299,24 @@ export const FirebaseAuthProvider: React.FC<AuthProviderProps> = ({ children }) 
       };
       
       // Get existing predictions from localStorage for this user
-      const userPredictionsKey = `predictions_${currentUser.uid}`;
-      const existingPredictions = JSON.parse(localStorage.getItem(userPredictionsKey) || '[]');
-      existingPredictions.push(predictionData);
-      
-      // Save back to localStorage
-      localStorage.setItem(userPredictionsKey, JSON.stringify(existingPredictions));
-      
+      const userPredictionsKey = getUserPredictionsKey(currentUser.uid);
+      const existingPredictions: PredictionHistory[] = JSON.parse(localStorage.getItem(userPredictionsKey) || '[]');
+      const updated = [...existingPredictions, predictionData];
+      // Enforce max length (keep newest)
+      const bounded = updated.slice(-MAX_LOCAL_PREDICTIONS);
+      // Try to persist; if quota exceeded, progressively prune
+      if (!safeSetUserPredictions(currentUser.uid, bounded)) {
+        // As a last resort, try storing metadata without the large image payloads
+        const minimized = bounded.map(p => ({
+          ...p,
+          imageUrl: ''
+        }));
+        const ok = safeSetUserPredictions(currentUser.uid, minimized);
+        if (!ok) {
+          console.warn('Failed to save prediction: localStorage quota exceeded, even after pruning.');
+          throw new Error('Storage is full. Clear some history in Profile → History to save new predictions.');
+        }
+      }
       console.log('Prediction saved to local storage:', predictionData.id);
       return predictionData.id;
     }

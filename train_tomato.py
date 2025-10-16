@@ -58,10 +58,15 @@ class TomatoDiseaseTrainer:
         self.train_loader = None
         self.val_loader = None
         self.test_loader = None
+        self.use_mlflow = True
         
-        # Setup MLflow
-        mlflow.set_tracking_uri(config.mlflow_uri)
-        mlflow.set_experiment(config.experiment_name)
+        # Setup MLflow with graceful fallback when server is unavailable
+        try:
+            mlflow.set_tracking_uri(config.mlflow_uri)
+            mlflow.set_experiment(config.experiment_name)
+        except Exception as e:
+            logger.warning(f"MLflow unavailable ({e}); continuing without experiment tracking.")
+            self.use_mlflow = False
         
     def prepare_data(self):
         """Prepare datasets and data loaders"""
@@ -259,19 +264,26 @@ class TomatoDiseaseTrainer:
         best_val_acc = 0.0
         best_model_state = None
         
-        # Start MLflow run
-        with mlflow.start_run():
+        # Start MLflow run (optional)
+        if self.use_mlflow:
+            run_cm = mlflow.start_run()
+        else:
+            from contextlib import nullcontext
+            run_cm = nullcontext()
+
+        with run_cm:
             # Log parameters
-            mlflow.log_params({
-                'model_name': self.config.model_name,
-                'batch_size': self.config.batch_size,
-                'learning_rate': self.config.learning_rate,
-                'weight_decay': self.config.weight_decay,
-                'epochs': self.config.epochs,
-                'num_classes': len(self.class_names),
-                'class_names': json.dumps(self.class_names),
-                'plant_type': 'tomato'
-            })
+            if self.use_mlflow:
+                mlflow.log_params({
+                    'model_name': self.config.model_name,
+                    'batch_size': self.config.batch_size,
+                    'learning_rate': self.config.learning_rate,
+                    'weight_decay': self.config.weight_decay,
+                    'epochs': self.config.epochs,
+                    'num_classes': len(self.class_names),
+                    'class_names': json.dumps(self.class_names),
+                    'plant_type': 'tomato'
+                })
             
             # Training loop
             for epoch in range(self.config.epochs):
@@ -290,13 +302,14 @@ class TomatoDiseaseTrainer:
                 history['val_acc'].append(val_acc)
                 
                 # Log metrics
-                mlflow.log_metrics({
-                    'train_loss': train_loss,
-                    'train_acc': train_acc,
-                    'val_loss': val_loss,
-                    'val_acc': val_acc,
-                    'learning_rate': optimizer.param_groups[0]['lr']
-                }, step=epoch)
+                if self.use_mlflow:
+                    mlflow.log_metrics({
+                        'train_loss': train_loss,
+                        'train_acc': train_acc,
+                        'val_loss': val_loss,
+                        'val_acc': val_acc,
+                        'learning_rate': optimizer.param_groups[0]['lr']
+                    }, step=epoch)
                 
                 # Save best model
                 if val_acc > best_val_acc:
@@ -313,7 +326,8 @@ class TomatoDiseaseTrainer:
                         'class_names': self.class_names
                     }, checkpoint_path)
                     
-                    mlflow.log_artifact(str(checkpoint_path))
+                    if self.use_mlflow:
+                        mlflow.log_artifact(str(checkpoint_path))
                 
                 logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
                 logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
@@ -325,17 +339,19 @@ class TomatoDiseaseTrainer:
                 'model_state_dict': best_model_state,
                 'class_names': self.class_names,
                 'val_acc': best_val_acc,
-                'config': self.config
+                'model_architecture': self.config.model_name
             }, final_model_path)
             
-            mlflow.log_artifact(str(final_model_path))
+            if self.use_mlflow:
+                mlflow.log_artifact(str(final_model_path))
             
             # Log final metrics
-            mlflow.log_metrics({
-                'final_train_acc': history['train_acc'][-1],
-                'final_val_acc': history['val_acc'][-1],
-                'best_val_acc': best_val_acc
-            })
+            if self.use_mlflow:
+                mlflow.log_metrics({
+                    'final_train_acc': history['train_acc'][-1],
+                    'final_val_acc': history['val_acc'][-1],
+                    'best_val_acc': best_val_acc
+                })
             
             logger.info(f"Training completed! Best validation accuracy: {best_val_acc:.2f}%")
             

@@ -76,13 +76,13 @@ def create_tomato_labels():
     labels_file = dataset_path / 'tomato_labels.csv'
     df.to_csv(labels_file, index=False)
     
-    print(f"\n✅ Created tomato_labels.csv with {len(df)} samples")
+    print(f"\nCreated tomato_labels.csv with {len(df)} samples")
     print(f"   Train: {len(df[df['split'] == 'train'])} samples")
     print(f"   Validation: {len(df[df['split'] == 'validation'])} samples")
     print(f"   Test: {len(df[df['split'] == 'test'])} samples")
     
     # Show class distribution
-    print(f"\n📊 Class distribution:")
+    print(f"\nClass distribution:")
     print(df['label'].value_counts())
     
     return labels_file

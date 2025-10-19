@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -14,6 +15,24 @@ from app.config import settings
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Set deterministic behavior for consistent predictions
+try:
+    import torch, numpy as np, random
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+    np.random.seed(42)
+    random.seed(42)
+    # Ensure deterministic convolutions
+    if hasattr(torch.backends, 'cudnn'):
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    # Enforce deterministic algorithms where possible
+    if hasattr(torch, 'use_deterministic_algorithms'):
+        torch.use_deterministic_algorithms(True)
+except Exception:
+    pass
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -50,6 +69,28 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         raise
+
+@app.post("/model/switch")
+async def switch_model(plant: str = Body(..., embed=True)):
+    """Switch active plant model (potato/tomato)."""
+    if not model:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    try:
+        plant_norm = plant.lower().strip()
+        if plant_norm == 'potato':
+            model_path = settings.POTATO_MODEL_PATH
+        elif plant_norm == 'tomato':
+            model_path = settings.TOMATO_MODEL_PATH
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported plant. Use 'potato' or 'tomato'.")
+
+        await model.switch_plant(plant_norm, model_path)
+        return {"success": True, "activePlant": plant_norm, "classes": model.class_names}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to switch model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health_check():
@@ -106,6 +147,9 @@ async def predict_plant_disease(file: UploadFile = File(...)):
             "confidence": float(prediction_result['confidence']),
             "plantType": prediction_result['plant_type'],
             "diseaseType": prediction_result['disease_type'],
+            "predictedClass": prediction_result.get('predicted_class'),
+            "allProbabilities": prediction_result.get('all_probabilities'),
+            "modelAccuracy": getattr(model, 'model_val_accuracy', None),
             "explanation": explanation_url,
             "model_version": "1.0.0"
         }

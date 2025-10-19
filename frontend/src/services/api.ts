@@ -74,8 +74,8 @@ export const predictionAPI = {
   getPredictionHistory: (userId: string) =>
     apiClient.get(`/api/predictions/${userId}`),
   // Test endpoint (no auth required)
-  testPredict: (imageData: string) =>
-    apiClient.post('/api/test-predict', { imageData }),
+  testPredict: (imageData: string, plant?: 'potato' | 'tomato') =>
+    apiClient.post('/api/test-predict', { imageData, plant }),
 }
 
 export const solutionAPI = {

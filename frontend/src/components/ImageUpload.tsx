@@ -12,6 +12,7 @@ const ImageUpload = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [prediction, setPrediction] = useState<MLPrediction | null>(null)
+  const [plant, setPlant] = useState<'potato' | 'tomato'>('tomato')
   const { currentUser, savePrediction } = useAuth()
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -45,7 +46,7 @@ const ImageUpload = () => {
         reader.readAsDataURL(file)
       })
       
-      const response = await predictionAPI.testPredict(base64)
+      const response = await predictionAPI.testPredict(base64, plant)
       return response.data.prediction
     },
     onSuccess: async (data) => {
@@ -97,6 +98,18 @@ const ImageUpload = () => {
         <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">
           Upload Plant Image
         </h2>
+        {/* Plant Selector */}
+        <div className="mb-6 flex items-center justify-center gap-4">
+          <label className="text-sm font-medium text-gray-700">Plant:</label>
+          <select
+            className="select border-gray-300 rounded-md px-3 py-2 text-sm"
+            value={plant}
+            onChange={(e) => setPlant(e.target.value as 'potato' | 'tomato')}
+          >
+            <option value="tomato">Tomato</option>
+            <option value="potato">Potato</option>
+          </select>
+        </div>
         
         <div
           {...getRootProps()}

@@ -66,7 +66,7 @@ app.get('/health', (req, res) => {
 // Test endpoint for ML service (no auth required)
 app.post('/api/test-predict', async (req, res) => {
   try {
-    const { imageData } = req.body
+    const { imageData, plant } = req.body
     
     if (!imageData) {
       return res.status(400).json({
@@ -87,9 +87,18 @@ app.post('/api/test-predict', async (req, res) => {
       contentType: 'image/jpeg'
     })
 
-    // Call ML service directly
+    // Optionally request plant switch before prediction
     const mlServiceUrl = process.env.ML_SERVICE_URL || 'http://localhost:8000'
-    
+
+    if (plant && ['potato', 'tomato'].includes(String(plant).toLowerCase())) {
+      try {
+        await axios.post(`${mlServiceUrl}/model/switch`, { plant: String(plant).toLowerCase() }, { timeout: 10000 })
+      } catch (switchErr) {
+        logger.warn('Model switch request failed:', switchErr.message)
+      }
+    }
+
+    // Call ML service directly
     logger.info(`Calling ML service at ${mlServiceUrl}/predict`)
     
     const mlResponse = await axios.post(`${mlServiceUrl}/predict`, formData, {

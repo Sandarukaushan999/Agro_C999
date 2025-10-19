@@ -29,8 +29,26 @@ logger = logging.getLogger(__name__)
 
 class PlantDiseaseDataset(Dataset):
     def __init__(self, image_paths, labels, transform=None):
-        self.image_paths = image_paths
-        self.labels = labels
+        # Ensure list types
+        paths_list = list(image_paths)
+        labels_list = list(labels)
+
+        # Filter out any entries whose files are missing
+        filtered_paths = []
+        filtered_labels = []
+        removed_count = 0
+        for p, y in zip(paths_list, labels_list):
+            if os.path.exists(p):
+                filtered_paths.append(p)
+                filtered_labels.append(int(y))
+            else:
+                removed_count += 1
+
+        if removed_count:
+            logger.warning(f"Filtered out {removed_count} missing tomato images from dataset")
+
+        self.image_paths = filtered_paths
+        self.labels = filtered_labels
         self.transform = transform
         
     def __len__(self):
@@ -39,10 +57,15 @@ class PlantDiseaseDataset(Dataset):
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
         label = self.labels[idx]
-        
-        # Load image
-        image = Image.open(image_path).convert('RGB')
-        image = np.array(image)
+
+        # Load image with resilience to occasional filesystem issues
+        try:
+            image = Image.open(image_path).convert('RGB')
+            image = np.array(image)
+        except FileNotFoundError:
+            # If a file was removed after initialization, fall back to the first valid sample
+            # or raise IndexError to let DataLoader skip gracefully
+            raise IndexError(f"Missing file encountered at runtime: {image_path}")
         
         if self.transform:
             image = self.transform(image=image)['image']
@@ -119,7 +142,7 @@ class TomatoDiseaseTrainer:
             ToTensorV2()
         ])
         
-        # Create datasets
+        # Create datasets (constructor filters out missing files)
         train_dataset = PlantDiseaseDataset(train_paths, train_labels, train_transform)
         val_dataset = PlantDiseaseDataset(val_paths, val_labels, val_transform)
         
